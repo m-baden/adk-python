@@ -36,7 +36,7 @@ class EnterpriseWebSearchTool(BaseTool):
   """
 
   def __init__(self, *, bypass_multi_tools_limit: bool = False):
-    """Initializes the Google search tool.
+    """Initializes the Enterprise web search tool.
 
     Args:
       bypass_multi_tools_limit: Whether to bypass the multi tools limitation,

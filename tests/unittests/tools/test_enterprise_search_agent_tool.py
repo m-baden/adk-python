@@ -68,9 +68,9 @@ class TestEnterpriseSearchAgentTool:
     assert tool.agent == mock_agent
 
   @mark.asyncio
-  @mock.patch('google.adk.tools.enterprise_search_agent_tool.Runner')
-  async def test_run_async_succeeds(self, mock_runner_class):
-    """Test that run_async executes the sub-agent and returns the result."""
+  @mock.patch('google.adk.tools._search_agent_tool._SearchAgentTool.run_async')
+  async def test_run_async_succeeds(self, mock_run_async):
+    """Test that run_async calls the base class method."""
     # Arrange
     mock_agent = mock.MagicMock(spec=LlmAgent)
     mock_agent.name = 'enterprise_search_agent'
@@ -80,23 +80,7 @@ class TestEnterpriseSearchAgentTool:
 
     tool = EnterpriseSearchAgentTool(mock_agent)
     tool_context = await _create_tool_context()
-
-    async def mock_run_async_gen():
-      yield mock.MagicMock(
-          actions=mock.MagicMock(state_delta={'key': 'value'}), content=None
-      )
-      yield mock.MagicMock(
-          actions=mock.MagicMock(state_delta=None),
-          content=mock.MagicMock(parts=[mock.MagicMock(text='test response')]),
-      )
-
-    mock_runner_instance = mock.MagicMock()
-    mock_runner_instance.run_async.return_value = mock_run_async_gen()
-    mock_runner_instance.session_service = mock.AsyncMock()
-    mock_runner_instance.session_service.create_session.return_value = (
-        tool_context._invocation_context.session
-    )
-    mock_runner_class.return_value = mock_runner_instance
+    mock_run_async.return_value = 'test response'
 
     # Act
     result = await tool.run_async(
@@ -104,7 +88,7 @@ class TestEnterpriseSearchAgentTool:
     )
 
     # Assert
-    mock_runner_class.assert_called_once()
-    mock_runner_instance.run_async.assert_called_once()
-    assert tool_context.state['key'] == 'value'
+    mock_run_async.assert_called_once_with(
+        args={'request': 'test query'}, tool_context=tool_context
+    )
     assert result == 'test response'

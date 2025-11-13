@@ -847,8 +847,7 @@ class BaseLlmFlow(ABC):
         invocation_context.canonical_tools_cache = tools
 
       if not any(
-          tool.name == 'google_search_agent'
-          or tool.name == 'enterprise_search_agent'
+          tool.name in {'google_search_agent', 'enterprise_search_agent'}
           for tool in tools
       ):
         return response
