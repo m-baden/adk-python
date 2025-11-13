@@ -846,7 +846,11 @@ class BaseLlmFlow(ABC):
         tools = await agent.canonical_tools(readonly_context)
         invocation_context.canonical_tools_cache = tools
 
-      if not any(tool.name == 'google_search_agent' for tool in tools):
+      if not any(
+          tool.name == 'google_search_agent'
+          or tool.name == 'enterprise_search_agent'
+          for tool in tools
+      ):
         return response
       ground_metadata = invocation_context.session.state.get(
           'temp:_adk_grounding_metadata', None

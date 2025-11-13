@@ -138,6 +138,7 @@ async def _convert_tool_union_to_tools(
     model: Union[str, BaseLlm],
     multiple_tools: bool = False,
 ) -> list[BaseTool]:
+  from ..tools.enterprise_search_tool import EnterpriseWebSearchTool
   from ..tools.google_search_tool import GoogleSearchTool
   from ..tools.vertex_ai_search_tool import VertexAiSearchTool
 
@@ -170,6 +171,17 @@ async def _convert_tool_union_to_tools(
               max_results=vais_tool.max_results,
           )
       ]
+
+  # Wrap enterprise_web_search tool with AgentTool if there are multiple tools
+  # because the built-in tools cannot be used together with other tools.
+  # TODO(b/448114567): Remove once the workaround is no longer needed.
+  if multiple_tools and isinstance(tool_union, EnterpriseWebSearchTool):
+    from ..tools.enterprise_search_agent_tool import create_enterprise_search_agent
+    from ..tools.enterprise_search_agent_tool import EnterpriseSearchAgentTool
+
+    enterprise_tool = cast(EnterpriseWebSearchTool, tool_union)
+    if enterprise_tool.bypass_multi_tools_limit:
+      return [EnterpriseSearchAgentTool(create_enterprise_search_agent(model))]
 
   if isinstance(tool_union, BaseTool):
     return [tool_union]
