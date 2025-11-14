@@ -39,7 +39,6 @@ class _SearchAgentTool(AgentTool):
       args: dict[str, Any],
       tool_context: ToolContext,
   ) -> Any:
-    from ..agents.llm_agent import LlmAgent
 
     if isinstance(self.agent, LlmAgent) and self.agent.input_schema:
       input_value = self.agent.input_schema.model_validate(args)

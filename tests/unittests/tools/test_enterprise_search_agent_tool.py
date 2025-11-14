@@ -12,83 +12,130 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import annotations
-
-from unittest import mock
-
 from google.adk.agents.invocation_context import InvocationContext
-from google.adk.agents.llm_agent import LlmAgent
-from google.adk.agents.run_config import RunConfig
-from google.adk.agents.sequential_agent import SequentialAgent
-from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
-from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
-from google.adk.plugins.plugin_manager import PluginManager
+from google.adk.agents.llm_agent import Agent
+from google.adk.models.llm_response import LlmResponse
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
-from google.adk.tools.enterprise_search_agent_tool import create_enterprise_search_agent
 from google.adk.tools.enterprise_search_agent_tool import EnterpriseSearchAgentTool
 from google.adk.tools.tool_context import ToolContext
+from google.genai import types
+from google.genai.types import Part
 from pytest import mark
 
+from .. import testing_utils
 
-async def _create_tool_context() -> ToolContext:
+function_call_no_schema = Part.from_function_call(
+    name='tool_agent', args={'request': 'test1'}
+)
+
+
+grounding_metadata = types.GroundingMetadata(web_search_queries=['test query'])
+
+
+# TODO(b/448114567): Remove test_grounding_metadata_ tests once the workaround
+# is no longer needed.
+
+
+@mark.asyncio
+async def test_grounding_metadata_is_stored_in_state_during_invocation():
+  """Verify grounding_metadata is stored in the state during invocation."""
+
+  # Mock model for the tool_agent that returns grounding_metadata
+  tool_agent_model = testing_utils.MockModel.create(
+      responses=[
+          LlmResponse(
+              content=types.Content(
+                  parts=[Part.from_text(text='response from tool')]
+              ),
+              grounding_metadata=grounding_metadata,
+          )
+      ]
+  )
+
+  tool_agent = Agent(
+      name='tool_agent',
+      model=tool_agent_model,
+  )
+
+  agent_tool = EnterpriseSearchAgentTool(agent=tool_agent)
+
   session_service = InMemorySessionService()
   session = await session_service.create_session(
       app_name='test_app', user_id='test_user'
   )
-  agent = SequentialAgent(name='test_agent')
+
   invocation_context = InvocationContext(
       invocation_id='invocation_id',
-      agent=agent,
+      agent=tool_agent,
       session=session,
       session_service=session_service,
-      artifact_service=InMemoryArtifactService(),
-      memory_service=InMemoryMemoryService(),
-      plugin_manager=PluginManager(),
-      run_config=RunConfig(),
   )
-  return ToolContext(invocation_context=invocation_context)
+  tool_context = ToolContext(invocation_context=invocation_context)
+  tool_result = await agent_tool.run_async(
+      args=function_call_no_schema.function_call.args, tool_context=tool_context
+  )
+
+  # Verify the tool result
+  assert tool_result == 'response from tool'
+
+  # Verify grounding_metadata is stored in the state
+  assert tool_context.state['temp:_adk_grounding_metadata'] == (
+      grounding_metadata
+  )
 
 
-class TestEnterpriseSearchAgentTool:
-  """Test the EnterpriseSearchAgentTool class."""
+@mark.asyncio
+async def test_grounding_metadata_is_not_stored_in_state_after_invocation():
+  """Verify grounding_metadata is not stored in the state after invocation."""
 
-  def test_create_enterprise_search_agent(self):
-    """Test that create_enterprise_search_agent creates a valid agent."""
-    agent = create_enterprise_search_agent('gemini-pro')
-    assert isinstance(agent, LlmAgent)
-    assert agent.name == 'enterprise_search_agent'
-    assert 'enterprise_web_search' in [t.name for t in agent.tools]
+  # Mock model for the tool_agent that returns grounding_metadata
+  tool_agent_model = testing_utils.MockModel.create(
+      responses=[
+          LlmResponse(
+              content=types.Content(
+                  parts=[Part.from_text(text='response from tool')]
+              ),
+              grounding_metadata=grounding_metadata,
+          )
+      ]
+  )
 
-  def test_enterprise_search_agent_tool_init(self):
-    """Test initialization of EnterpriseSearchAgentTool."""
-    mock_agent = mock.MagicMock(spec=LlmAgent)
-    mock_agent.name = 'test_agent'
-    mock_agent.description = 'test_description'
-    tool = EnterpriseSearchAgentTool(mock_agent)
-    assert tool.agent == mock_agent
+  tool_agent = Agent(
+      name='tool_agent',
+      model=tool_agent_model,
+  )
 
-  @mark.asyncio
-  @mock.patch('google.adk.tools._search_agent_tool._SearchAgentTool.run_async')
-  async def test_run_async_succeeds(self, mock_run_async):
-    """Test that run_async calls the base class method."""
-    # Arrange
-    mock_agent = mock.MagicMock(spec=LlmAgent)
-    mock_agent.name = 'enterprise_search_agent'
-    mock_agent.description = 'test_description'
-    mock_agent.input_schema = None
-    mock_agent.output_schema = None
+  # Mock model for the root_agent
+  root_agent_model = testing_utils.MockModel.create(
+      responses=[
+          function_call_no_schema,  # Call the tool_agent
+          'Final response from root',
+      ]
+  )
 
-    tool = EnterpriseSearchAgentTool(mock_agent)
-    tool_context = await _create_tool_context()
-    mock_run_async.return_value = 'test response'
+  root_agent = Agent(
+      name='root_agent',
+      model=root_agent_model,
+      tools=[EnterpriseSearchAgentTool(agent=tool_agent)],
+  )
 
-    # Act
-    result = await tool.run_async(
-        args={'request': 'test query'}, tool_context=tool_context
-    )
+  runner = testing_utils.InMemoryRunner(root_agent)
+  events = runner.run('test input')
 
-    # Assert
-    mock_run_async.assert_called_once_with(
-        args={'request': 'test query'}, tool_context=tool_context
-    )
-    assert result == 'test response'
+  # Find the function response event
+  function_response_event = None
+  for event in events:
+    if event.get_function_responses():
+      function_response_event = event
+      break
+
+  # Verify the function response
+  assert function_response_event is not None
+  function_responses = function_response_event.get_function_responses()
+  assert len(function_responses) == 1
+  tool_output = function_responses[0].response
+  assert tool_output == {'result': 'response from tool'}
+
+  # Verify grounding_metadata is not stored in the root_agent's state
+  assert 'temp:_adk_grounding_metadata' not in runner.session.state
+

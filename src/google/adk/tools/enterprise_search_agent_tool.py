@@ -47,7 +47,7 @@ class EnterpriseSearchAgentTool(_SearchAgentTool):
   TODO(b/448114567): Remove once the workaround is no longer needed.
 
   Attributes:
-    model: The model to use for the sub-agent.
+    agent: The sub-agent that this tool wraps.
   """
 
   def __init__(self, agent: LlmAgent):
