@@ -138,4 +138,3 @@ async def test_grounding_metadata_is_not_stored_in_state_after_invocation():
 
   # Verify grounding_metadata is not stored in the root_agent's state
   assert 'temp:_adk_grounding_metadata' not in runner.session.state
-

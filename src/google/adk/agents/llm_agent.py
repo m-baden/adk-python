@@ -161,7 +161,9 @@ async def _convert_tool_union_to_tools(
         # EnterpriseWebSearchTool: wrap with AgentTool
         {
             'tool_class': EnterpriseWebSearchTool,
-            'handler': lambda: _handle_enterprise_search_tool(tool_union, model),
+            'handler': lambda: _handle_enterprise_search_tool(
+                tool_union, model
+            ),
         },
     ]
 
