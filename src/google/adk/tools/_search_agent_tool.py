@@ -68,7 +68,7 @@ class _SearchAgentTool(AgentTool):
       state_dict = {
           k: v
           for k, v in tool_context.state.to_dict().items()
-          if not k.startswith('_adk')  # Filter out adk internal states
+          if not k.startswith('_adk') and not k.startswith('temp:')
       }
       session = await runner.session_service.create_session(
           app_name=self.agent.name,
