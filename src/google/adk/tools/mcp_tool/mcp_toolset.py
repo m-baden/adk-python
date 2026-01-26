@@ -1,4 +1,4 @@
-# Copyright 2025 Google LLC
+# Copyright 2026 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,6 +25,8 @@ from typing import TextIO
 from typing import Union
 import warnings
 
+from mcp import StdioServerParameters
+from mcp.types import ListToolsResult
 from pydantic import model_validator
 from typing_extensions import override
 
@@ -37,27 +39,10 @@ from ..base_toolset import ToolPredicate
 from ..tool_configs import BaseToolConfig
 from ..tool_configs import ToolArgsConfig
 from .mcp_session_manager import MCPSessionManager
-from .mcp_session_manager import retry_on_closed_resource
+from .mcp_session_manager import retry_on_errors
 from .mcp_session_manager import SseConnectionParams
 from .mcp_session_manager import StdioConnectionParams
 from .mcp_session_manager import StreamableHTTPConnectionParams
-
-# Attempt to import MCP Tool from the MCP library, and hints user to upgrade
-# their Python version to 3.10 if it fails.
-try:
-  from mcp import StdioServerParameters
-  from mcp.types import ListToolsResult
-except ImportError as e:
-  import sys
-
-  if sys.version_info < (3, 10):
-    raise ImportError(
-        "MCP Tool requires Python 3.10 or above. Please upgrade your Python"
-        " version."
-    ) from e
-  else:
-    raise e
-
 from .mcp_tool import MCPTool
 
 logger = logging.getLogger("google_adk." + __name__)
@@ -155,7 +140,7 @@ class McpToolset(BaseToolset):
     self._auth_credential = auth_credential
     self._require_confirmation = require_confirmation
 
-  @retry_on_closed_resource
+  @retry_on_errors
   async def get_tools(
       self,
       readonly_context: Optional[ReadonlyContext] = None,
