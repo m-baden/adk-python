@@ -17,16 +17,14 @@ from __future__ import annotations
 from typing import Any
 from typing import Union
 
-from async_generator import aclosing as Aclosing
 from google.genai import types
 from typing_extensions import override
 
 from ..agents.llm_agent import LlmAgent
 from ..memory.in_memory_memory_service import InMemoryMemoryService
 from ..models.base_llm import BaseLlm
-from ..services.artifact.forwarding_artifact_service import (
-    ForwardingArtifactService,
-)
+from ..utils.context_utils import Aclosing
+from ._forwarding_artifact_service import ForwardingArtifactService
 from ._search_agent_tool import _SearchAgentTool
 from .google_search_tool import google_search
 from .tool_context import ToolContext
