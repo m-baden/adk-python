@@ -108,10 +108,20 @@ def _dereference_schema(schema: dict[str, Any]) -> dict[str, Any]:
 
   defs = schema.get("$defs", {})
 
-  def _resolve_refs(sub_schema: Any) -> Any:
+  def _resolve_refs(sub_schema: Any, path_refs: frozenset[str]) -> Any:
     if isinstance(sub_schema, dict):
       if "$ref" in sub_schema:
-        ref_key = sub_schema["$ref"].split("/")[-1]
+        ref_uri = sub_schema["$ref"]
+        ref_key = ref_uri.split("/")[-1]
+
+        if ref_uri in path_refs:
+          return {
+              "type": "object",
+              "description": f"Circular ref to {ref_key}",
+          }
+
+        new_path = path_refs | {ref_uri}
+
         if ref_key in defs:
           # Found the reference, replace it with the definition.
           resolved = defs[ref_key].copy()
@@ -120,21 +130,24 @@ def _dereference_schema(schema: dict[str, Any]) -> dict[str, Any]:
           del sub_schema_copy["$ref"]
           resolved.update(sub_schema_copy)
           # Recursively resolve refs in the newly inserted part.
-          return _resolve_refs(resolved)
+          return _resolve_refs(resolved, new_path)
         else:
           # Reference not found, return as is.
           return sub_schema
       else:
         # No $ref, so traverse deeper into the dictionary.
-        return {key: _resolve_refs(value) for key, value in sub_schema.items()}
+        return {
+            key: _resolve_refs(value, path_refs)
+            for key, value in sub_schema.items()
+        }
     elif isinstance(sub_schema, list):
       # Traverse into lists.
-      return [_resolve_refs(item) for item in sub_schema]
+      return [_resolve_refs(item, path_refs) for item in sub_schema]
     else:
       # Not a dict or list, return as is.
       return sub_schema
 
-  dereferenced_schema = _resolve_refs(schema)
+  dereferenced_schema = _resolve_refs(schema, frozenset())
   # Remove the definitions block after resolving.
   if "$defs" in dereferenced_schema:
     del dereferenced_schema["$defs"]
@@ -142,9 +155,26 @@ def _dereference_schema(schema: dict[str, Any]) -> dict[str, Any]:
 
 
 def _sanitize_schema_formats_for_gemini(
-    schema: dict[str, Any], preserve_null_type: bool = False
-) -> dict[str, Any]:
-  """Filters the schema to only include fields that are supported by JSONSchema."""
+    schema: Any, preserve_null_type: bool = False
+) -> Any:
+  """Filters schemas to only include fields supported by JSONSchema."""
+  if isinstance(schema, list):
+    return [
+        _sanitize_schema_formats_for_gemini(
+            item, preserve_null_type=preserve_null_type
+        )
+        for item in schema
+    ]
+  # JSON Schema allows boolean schemas: `true` (accept any value) and `false`
+  # (reject all values). Gemini has no equivalent for either. `true` is
+  # approximated as an unconstrained object schema; `false` has no meaningful
+  # Gemini representation and is also mapped to an object schema as a safe
+  # fallback so that schema conversion does not crash.
+  if isinstance(schema, bool):
+    return {"type": "object"}
+  if not isinstance(schema, dict):
+    return schema
+
   supported_fields: set[str] = set(_ExtendedJSONSchema.model_fields.keys())
   # Gemini rejects schemas that include `additionalProperties`, so drop it.
   supported_fields.discard("additional_properties")
@@ -152,7 +182,7 @@ def _sanitize_schema_formats_for_gemini(
   list_schema_field_names: set[str] = {
       "any_of",  # 'one_of', 'all_of', 'not' to come
   }
-  snake_case_schema = {}
+  snake_case_schema: dict[str, Any] = {}
   dict_schema_field_names: tuple[str, ...] = (
       "properties",
       "defs",

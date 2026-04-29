@@ -183,18 +183,24 @@ def read_local_git_repo_file_content(file_path: str) -> Dict[str, Any]:
       commit hash.
   """
   print(f"Attempting to read file from path: {file_path}")
-  dir_path = os.path.dirname(file_path)
-  head_commit_sha = _find_head_commit_sha(dir_path)
+  if not os.path.isabs(file_path):
+    return error_response(
+        f"file_path must be an absolute path, got: {file_path}"
+    )
 
   try:
-    # Open and read the file content
+    dir_path = os.path.dirname(file_path)
+    head_commit_sha = _find_head_commit_sha(dir_path)
+  except (FileNotFoundError, subprocess.CalledProcessError):
+    head_commit_sha = "unknown"
+
+  try:
     with open(file_path, "r", encoding="utf-8") as f:
       content = f.read()
 
-      # Add line numbers to the content
-      lines = content.splitlines()
-      numbered_lines = [f"{i + 1}: {line}" for i, line in enumerate(lines)]
-      numbered_content = "\n".join(numbered_lines)
+    lines = content.splitlines()
+    numbered_lines = [f"{i + 1}: {line}" for i, line in enumerate(lines)]
+    numbered_content = "\n".join(numbered_lines)
 
     return {
         "status": "success",
@@ -204,7 +210,7 @@ def read_local_git_repo_file_content(file_path: str) -> Dict[str, Any]:
     }
   except FileNotFoundError:
     return error_response(f"Error: File not found at {file_path}")
-  except IOError as e:
+  except (IOError, OSError) as e:
     return error_response(f"An unexpected error occurred: {e}")
 
 
@@ -605,6 +611,7 @@ def get_changed_files_summary(
     start_tag: str,
     end_tag: str,
     local_repo_path: Optional[str] = None,
+    path_filter: Optional[str] = None,
 ) -> Dict[str, Any]:
   """Gets a summary of changed files between two releases without patches.
 
@@ -620,6 +627,9 @@ def get_changed_files_summary(
       local_repo_path: Optional absolute path to local git repo. If provided
           and valid, uses git diff instead of GitHub API to get complete
           file list (avoids 300-file limit).
+      path_filter: Optional path prefix to filter files. Only files whose
+          path starts with this prefix will be included. Example:
+          "src/google/adk/" to only include ADK source files.
 
   Returns:
       A dictionary containing the status and a summary of changed files.
@@ -627,7 +637,7 @@ def get_changed_files_summary(
   # Use local git if valid path is provided (avoids GitHub API 300-file limit)
   if local_repo_path and os.path.isdir(os.path.join(local_repo_path, ".git")):
     return _get_changed_files_from_local_git(
-        local_repo_path, start_tag, end_tag, repo_owner, repo_name
+        local_repo_path, start_tag, end_tag, repo_owner, repo_name, path_filter
     )
 
   # Fall back to GitHub API (limited to 300 files)
@@ -689,6 +699,7 @@ def _get_changed_files_from_local_git(
     end_tag: str,
     repo_owner: str,
     repo_name: str,
+    path_filter: Optional[str] = None,
 ) -> Dict[str, Any]:
   """Gets changed files using local git commands (no file limit).
 
@@ -698,6 +709,7 @@ def _get_changed_files_from_local_git(
       end_tag: The newer tag (head) for the comparison.
       repo_owner: Repository owner for compare URL.
       repo_name: Repository name for compare URL.
+      path_filter: Optional path prefix to filter files.
 
   Returns:
       A dictionary containing the status and a summary of changed files.
@@ -765,6 +777,10 @@ def _get_changed_files_from_local_git(
       if len(parts) >= 2:
         status_code = parts[0][0]  # First char is the status
         filename = parts[-1]  # Last part is filename (handles renames)
+
+        # Apply path filter if specified
+        if path_filter and not filename.startswith(path_filter):
+          continue
 
         stats = file_stats.get(
             filename,
